@@ -6,7 +6,7 @@
 <title>순찰시계</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
 :root{--bg:#f3f5f8;--card:#fff;--ink:#1b2430;--sub:#6b7686;--pri:#1f6feb;--ok:#1a9e55;--warn:#d9822b;--bad:#d64545;--line:#e2e6ec}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -18,14 +18,19 @@ main{padding:14px 16px;max-width:640px;margin:0 auto}
 .card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
 .card h2{font-size:16px;margin:0 0 10px}
 button{font:inherit;border:0;border-radius:10px;padding:12px 14px;font-weight:600;cursor:pointer}
-.btn{background:var(--pri);color:#fff;width:100%;font-size:17px;padding:16px}
+button:disabled{opacity:.5}
+.btn{background:var(--pri);color:#fff;width:100%;font-size:18px;padding:18px}
 .btn.stop{background:var(--bad)}
-.btn2{background:#e8eef8;color:var(--pri)}
+.btn2{background:#e8eef8;color:var(--pri);width:100%}
 .btn3{background:#eef0f3;color:var(--ink)}
-.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row{display:flex;gap:8px;align-items:center}
 .row>*{flex:1}
-input,select{font:inherit;padding:11px;border:1px solid var(--line);border-radius:10px;width:100%;background:#fff}
+input,select{font:inherit;padding:11px;border:1px solid var(--line);border-radius:10px;width:100%;background:#fff;color:var(--ink)}
+select#worker{font-size:17px;font-weight:600}
 #reader{width:100%;border-radius:12px;overflow:hidden;margin-top:10px;display:none}
+.sync{margin-top:10px;font-size:14px;padding:9px 12px;border-radius:10px;background:#eef0f3;color:var(--sub)}
+.sync.ok{background:#e7f6ee;color:var(--ok)}
+.sync.wait{background:#fdf1e5;color:var(--warn)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
 .pt{border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center;background:#fafbfc}
 .pt b{display:block;font-size:13px}
@@ -43,12 +48,12 @@ nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid 
 nav button{flex:1;background:none;border-radius:0;padding:12px 0 14px;color:var(--sub);font-size:14px}
 nav button.on{color:var(--pri)}
 .tab{display:none}.tab.on{display:block}
-#toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:var(--ok);color:#fff;padding:14px 20px;border-radius:12px;font-weight:700;font-size:17px;display:none;z-index:20;box-shadow:0 4px 14px rgba(0,0,0,.2);text-align:center}
+#toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:var(--ok);color:#fff;padding:16px 22px;border-radius:12px;font-weight:700;font-size:18px;display:none;z-index:20;box-shadow:0 4px 14px rgba(0,0,0,.2);text-align:center;min-width:220px}
 #toast.err{background:var(--bad)}
 .muted{color:var(--sub);font-size:13px;line-height:1.5}
 .nameRow{display:flex;gap:6px;align-items:center;margin-bottom:6px}
 .nameRow label{width:64px;font-size:14px;flex:none}
-/* 인쇄용 QR 라벨 */
+.hide{display:none!important}
 #printArea{display:none}
 @media print{
   body{background:#fff;padding:0}
@@ -66,72 +71,91 @@ nav button.on{color:var(--pri)}
 <header><h1>🔦 순찰시계</h1><div id="clock"></div></header>
 
 <main>
-<!-- 순찰 탭 -->
+<!-- 순찰 -->
 <section class="tab on" id="tab-scan">
   <div class="card">
-    <div class="row" style="margin-bottom:10px">
-      <select id="worker"></select>
-    </div>
+    <div style="margin-bottom:10px"><select id="worker"></select></div>
     <button class="btn" id="scanBtn" onclick="toggleScan()">📷 순찰지점 촬영 시작</button>
     <div id="reader"></div>
-    <p class="muted" style="margin:10px 0 0">지점에 붙은 QR 표식을 화면 안에 비추면 자동으로 시간이 기록됩니다. 연속으로 여러 지점을 찍을 수 있어요.</p>
+    <div class="sync" id="syncBox"></div>
   </div>
   <div class="card">
-    <h2>오늘 순찰 현황</h2>
+    <h2>오늘 순찰 현황 (이 휴대폰)</h2>
     <div class="prog" id="prog"></div>
     <div class="grid" id="todayGrid"></div>
-    <p class="muted" style="margin:10px 0 0">칸에 표시된 시간은 그 지점의 오늘 마지막 순찰 시간입니다.</p>
   </div>
 </section>
 
-<!-- 기록 탭 -->
+<!-- 내 기록 -->
 <section class="tab" id="tab-log">
   <div class="card">
-    <h2>날짜별 기록</h2>
+    <h2>이 휴대폰의 기록</h2>
     <div class="row" style="margin-bottom:10px">
-      <button class="btn3" style="flex:0 0 48px" onclick="shiftDate(-1)">◀</button>
+      <button class="btn3" style="flex:0 0 48px" onclick="shiftDate('logDate',-1,renderLog)">◀</button>
       <input type="date" id="logDate" onchange="renderLog()">
-      <button class="btn3" style="flex:0 0 48px" onclick="shiftDate(1)">▶</button>
+      <button class="btn3" style="flex:0 0 48px" onclick="shiftDate('logDate',1,renderLog)">▶</button>
     </div>
     <div id="logSummary" class="prog"></div>
-    <table><thead><tr><th>시간</th><th>지점</th><th>근무자</th><th></th></tr></thead><tbody id="logBody"></tbody></table>
+    <table><thead><tr><th>시간</th><th>지점</th><th>근무자</th><th>전송</th></tr></thead><tbody id="logBody"></tbody></table>
+  </div>
+</section>
+
+<!-- 관리 (관리자만) -->
+<section class="tab" id="tab-adm">
+  <div class="card">
+    <h2>전체 순찰 기록 (모든 휴대폰)</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button class="btn3" style="flex:0 0 48px" onclick="shiftDate('admDate',-1,loadAdm)">◀</button>
+      <input type="date" id="admDate" onchange="loadAdm()">
+      <button class="btn3" style="flex:0 0 48px" onclick="shiftDate('admDate',1,loadAdm)">▶</button>
+    </div>
+    <div id="admSummary" class="prog"></div>
+    <div class="grid" id="admGrid" style="margin-bottom:10px"></div>
+    <table><thead><tr><th>시간</th><th>지점</th><th>근무자</th></tr></thead><tbody id="admBody"></tbody></table>
   </div>
   <div class="card">
-    <h2>엑셀 다운로드</h2>
-    <button class="btn2" style="width:100%;margin-bottom:10px" onclick="exportDay()">📥 선택한 날짜 엑셀 받기</button>
+    <h2>순찰일지 엑셀</h2>
+    <button class="btn2" style="margin-bottom:10px" onclick="admExportDay()">📥 선택한 날짜 순찰일지 받기</button>
     <div class="row" style="margin-bottom:8px">
       <input type="date" id="fromDate"><span style="flex:0">~</span><input type="date" id="toDate">
     </div>
-    <button class="btn2" style="width:100%" onclick="exportRange()">📥 기간 엑셀 받기 (날짜별 시트)</button>
+    <button class="btn2" onclick="admExportRange()">📥 기간 순찰일지 받기 (날짜별 시트)</button>
+    <p class="muted" style="margin:10px 0 0">A4 세로 한 장 양식입니다. 엑셀에서 열어 바로 인쇄하세요.</p>
   </div>
 </section>
 
-<!-- 설정 탭 -->
+<!-- 설정 -->
 <section class="tab" id="tab-set">
-  <div class="card">
-    <h2>근무자</h2>
-    <div class="row"><input id="newWorker" placeholder="이름 입력 (예: 홍길동)"><button class="btn2" style="flex:0 0 80px" onclick="addWorker()">추가</button></div>
-    <div id="workerList" style="margin-top:8px"></div>
+  <div class="card" id="adminLogin">
+    <h2>관리자 모드</h2>
+    <p class="muted" style="margin-top:0">관리사무소용입니다. 비밀번호를 넣으면 전체 기록 조회, 지점 이름·근무자 관리가 열립니다.</p>
+    <div class="row"><input id="pinInput" type="password" inputmode="numeric" placeholder="관리자 비밀번호"><button class="btn2" style="flex:0 0 80px;width:auto" onclick="adminLogin()">확인</button></div>
   </div>
-  <div class="card">
-    <h2>순찰지점 이름</h2>
-    <p class="muted" style="margin-top:0">위치를 적어두면 기록과 엑셀에 같이 표시됩니다. QR 표식을 다시 뽑지 않아도 이름만 바꿀 수 있어요.</p>
-    <div id="pointNames"></div>
-    <button class="btn2" style="width:100%;margin-top:6px" onclick="savePoints()">지점 이름 저장</button>
+  <div class="card hide" id="adminOn">
+    <h2>관리자 모드 켜짐</h2>
+    <button class="btn3" style="width:100%" onclick="adminLogout()">관리자 모드 끄기</button>
   </div>
-  <div class="card">
-    <h2>QR 표식 인쇄</h2>
-    <p class="muted" style="margin-top:0">A4에 지점 12개 라벨이 출력됩니다. 코팅해서 각 지점에 부착하세요. (PC에서 열어 인쇄 권장)</p>
-    <button class="btn2" style="width:100%" onclick="printLabels()">🖨️ QR 라벨 인쇄</button>
-  </div>
-  <div class="card">
-    <h2>백업 / 복원</h2>
-    <p class="muted" style="margin-top:0">기록은 이 휴대폰에만 저장됩니다. 휴대폰을 바꾸거나 브라우저 데이터를 지우기 전에 백업하세요.</p>
-    <div class="row">
-      <button class="btn3" onclick="backup()">백업 파일 받기</button>
-      <button class="btn3" onclick="document.getElementById('restoreFile').click()">백업 복원</button>
+  <div id="adminSettings" class="hide">
+    <div class="card">
+      <h2>근무자 명단</h2>
+      <div class="row"><input id="newWorker" placeholder="이름 입력 (예: 홍길동)"><button class="btn2" style="flex:0 0 80px;width:auto" onclick="addWorker()">추가</button></div>
+      <div id="workerList" style="margin-top:8px"></div>
     </div>
-    <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="restore(event)">
+    <div class="card">
+      <h2>순찰지점 이름</h2>
+      <div id="pointNames"></div>
+      <button class="btn2" style="margin-top:6px" onclick="savePoints()">지점 이름 저장</button>
+      <p class="muted" style="margin:8px 0 0">저장하면 모든 경비원 휴대폰에 자동으로 반영됩니다.</p>
+    </div>
+    <div class="card">
+      <h2>QR 표식 인쇄</h2>
+      <p class="muted" style="margin-top:0">A4에 지점 12개 라벨이 출력됩니다. 코팅해서 각 지점에 부착하세요. (PC에서 인쇄 권장)</p>
+      <button class="btn2" onclick="printLabels()">🖨️ QR 라벨 인쇄</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>앱 정보</h2>
+    <p class="muted" style="margin:0" id="appInfo"></p>
   </div>
 </section>
 </main>
@@ -141,80 +165,132 @@ nav button.on{color:var(--pri)}
 
 <nav>
   <button class="on" data-tab="scan" onclick="showTab('scan')">📷<br>순찰</button>
-  <button data-tab="log" onclick="showTab('log')">📋<br>기록</button>
+  <button data-tab="log" onclick="showTab('log')">📋<br>내 기록</button>
+  <button data-tab="adm" class="hide" id="navAdm" onclick="showTab('adm')">🗂️<br>관리</button>
   <button data-tab="set" onclick="showTab('set')">⚙️<br>설정</button>
 </nav>
 
 <script>
+/* ===== 서버 설정 ===== */
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxjfwK0rdix5SQrXGOxd8h6xs4MbzjoG3NJCo1CPxfLvnV2RuM4tIPLW16jJp-pYEl6/exec';                // ★ 구글 Apps Script 배포 URL을 여기에 붙여넣기
+const WRITE_KEY  = 'patrol-yangsan3'; // 서버코드의 WRITE_KEY와 같아야 함
+
 const N = 12;
-const QR_PREFIX = 'PATROL-';      // QR 내용: PATROL-01 ~ PATROL-12
-const DUP_SEC = 60;               // 같은 지점 60초 내 중복 촬영은 무시
+const QR_PREFIX = 'PATROL-';          // QR 내용: PATROL-01 ~ PATROL-12
+const DUP_SEC = 60;                   // 같은 지점 60초 내 중복 촬영 무시
+const DAYS = ['일','월','화','수','목','금','토'];
 
 function load(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
-function save(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){ alert('저장 공간 오류: ' + e.message); } }
-
-let records = load('patrol_records', []);
-let points  = load('patrol_points', []);
-points = Array.from({length:N}, (_, i) => points[i] || '');
-let workers = load('patrol_workers', []);
-let curWorker = load('patrol_worker', '');
-
+function save(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 const pad = n => String(n).padStart(2, '0');
 function ymd(d){ return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
 function hms(d){ return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
-function ptLabel(no){ const nm = points[no-1]; return '순찰지점' + no + (nm ? ' (' + nm + ')' : ''); }
-const DAYS = ['일','월','화','수','목','금','토'];
+function dow(date){ return DAYS[new Date(date + 'T00:00:00').getDay()]; }
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// 시계
+let dev = load('patrol_dev', '');
+if (!dev){ dev = Math.random().toString(36).slice(2, 8); save('patrol_dev', dev); }
+
+let records = load('patrol_records', []);
+records.forEach(r => { if (!r.id){ r.id = dev + '-' + r.ts + '-' + r.no; } if (r.sent === undefined) r.sent = false; });
+save('patrol_records', records);
+
+let cfg = load('patrol_cfg', null);
+if (!cfg){ cfg = { points: load('patrol_points', []), workers: load('patrol_workers', []) }; }
+cfg.points = Array.from({length:N}, (_, i) => cfg.points[i] || '');
+let curWorker = load('patrol_worker', '');
+let adminPin = load('patrol_admin_pin', '');
+let admRecs = [];
+
+function ptName(no){ return cfg.points[no-1] || ''; }
+function ptLabel(no){ const nm = ptName(no); return '순찰지점' + no + (nm ? ' (' + nm + ')' : ''); }
+
 setInterval(() => { const d = new Date(); document.getElementById('clock').textContent = ymd(d).slice(5).replace('-','/') + ' ' + hms(d); }, 1000);
 
-// 탭
 function showTab(t){
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('on', s.id === 'tab-' + t));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   if (t !== 'scan' && scanning) toggleScan();
   if (t === 'log') renderLog();
+  if (t === 'adm') loadAdm();
   if (t === 'set') renderSettings();
 }
-
 function toast(msg, err){
   const el = document.getElementById('toast');
   el.innerHTML = msg; el.className = err ? 'err' : ''; el.style.display = 'block';
-  clearTimeout(el._t); el._t = setTimeout(() => el.style.display = 'none', 2200);
+  clearTimeout(el._t); el._t = setTimeout(() => el.style.display = 'none', 2400);
 }
 function beep(){
-  try{
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
-    const o = ac.createOscillator(); o.frequency.value = 1200; o.connect(ac.destination);
-    o.start(); o.stop(ac.currentTime + 0.15);
-  }catch(e){}
+  try{ const ac = new (window.AudioContext || window.webkitAudioContext)(); const o = ac.createOscillator();
+    o.frequency.value = 1200; o.connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.15); }catch(e){}
   if (navigator.vibrate) navigator.vibrate(150);
 }
+function shiftDate(id, n, fn){
+  const el = document.getElementById(id); const d = new Date(el.value + 'T00:00:00');
+  d.setDate(d.getDate() + n); el.value = ymd(d); fn();
+}
 
-// ===== 스캔 =====
+/* ===== 서버 통신 ===== */
+function apiPost(obj){ return fetch(SCRIPT_URL, { method:'POST', body: JSON.stringify(obj) }).then(r => r.json()); }
+function apiGet(q){ return fetch(SCRIPT_URL + '?' + new URLSearchParams(q)).then(r => r.json()); }
+
+let syncing = false;
+function sync(){
+  if (!SCRIPT_URL || syncing) { renderSync(); return; }
+  const pending = records.filter(r => !r.sent);
+  if (!pending.length){ renderSync(); return; }
+  syncing = true;
+  apiPost({ action:'add', key: WRITE_KEY, records: pending.map(r => ({ id:r.id, date:r.date, time:r.time, no:r.no, worker:r.worker, ts:r.ts, dev })) })
+    .then(res => {
+      if (res.ok){ const ok = new Set(res.ids); records.forEach(r => { if (ok.has(r.id)) r.sent = true; }); save('patrol_records', records); }
+    })
+    .catch(() => {})
+    .finally(() => { syncing = false; renderSync(); renderToday(); });
+}
+function renderSync(){
+  const el = document.getElementById('syncBox');
+  if (!SCRIPT_URL){ el.className = 'sync'; el.textContent = '서버 미연결 · 기록은 이 휴대폰에만 저장됩니다'; return; }
+  const n = records.filter(r => !r.sent).length;
+  if (n){ el.className = 'sync wait'; el.textContent = '⏳ 전송 대기 ' + n + '건 · 인터넷 연결되면 자동 전송'; }
+  else { el.className = 'sync ok'; el.textContent = '✅ 관리사무소로 모두 전송됨'; }
+}
+function loadConfig(){
+  if (!SCRIPT_URL) return;
+  apiGet({ action:'config' }).then(res => {
+    if (!res.ok) return;
+    cfg = { points: Array.from({length:N}, (_, i) => res.points[i] || ''), workers: res.workers || [] };
+    save('patrol_cfg', cfg); renderWorkerSelect(); renderToday();
+    if (document.getElementById('tab-set').classList.contains('on')) renderSettings();
+  }).catch(() => {});
+}
+function pushConfig(){
+  save('patrol_cfg', cfg);
+  if (!SCRIPT_URL) return Promise.resolve(true);
+  return apiPost({ action:'setConfig', pin: adminPin, points: cfg.points, workers: cfg.workers })
+    .then(res => { if (!res.ok){ toast('저장 실패: 관리자 비밀번호 확인', true); return false; } return true; })
+    .catch(() => { toast('인터넷 연결을 확인하세요', true); return false; });
+}
+
+/* ===== 스캔 ===== */
 let qr = null, scanning = false, busy = false;
 function toggleScan(){
   const btn = document.getElementById('scanBtn'), rd = document.getElementById('reader');
   if (scanning){
     qr.stop().catch(()=>{}).finally(() => { rd.style.display = 'none'; });
-    scanning = false; btn.textContent = '📷 순찰지점 촬영 시작'; btn.classList.remove('stop');
-    return;
+    scanning = false; btn.textContent = '📷 순찰지점 촬영 시작'; btn.classList.remove('stop'); return;
   }
-  if (!curWorker && workers.length){ curWorker = document.getElementById('worker').value; }
+  if (cfg.workers.length && !document.getElementById('worker').value){ toast('근무자 이름을 먼저 선택하세요', true); return; }
   rd.style.display = 'block';
   qr = qr || new Html5Qrcode('reader');
-  qr.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 230, height: 230 } }, onScan)
+  qr.start({ facingMode:'environment' }, { fps:10, qrbox:{ width:230, height:230 } }, onScan)
     .then(() => { scanning = true; btn.textContent = '■ 촬영 종료'; btn.classList.add('stop'); })
-    .catch(err => { rd.style.display = 'none'; toast('카메라를 열 수 없습니다.<br><small>카메라 권한을 허용해 주세요</small>', true); console.log(err); });
+    .catch(() => { rd.style.display = 'none'; toast('카메라를 열 수 없습니다<br><small>카메라 권한을 허용해 주세요</small>', true); });
 }
-
 function onScan(text){
   if (busy) return;
   text = (text || '').trim();
-  if (!text.startsWith(QR_PREFIX)){ busy = true; toast('순찰지점 QR이 아닙니다', true); setTimeout(() => busy = false, 1500); return; }
-  const no = parseInt(text.slice(QR_PREFIX.length), 10);
-  if (!(no >= 1 && no <= N)){ busy = true; toast('알 수 없는 지점입니다', true); setTimeout(() => busy = false, 1500); return; }
-
+  const no = text.startsWith(QR_PREFIX) ? parseInt(text.slice(QR_PREFIX.length), 10) : NaN;
+  if (!(no >= 1 && no <= N)){ busy = true; toast('순찰지점 QR이 아닙니다', true); setTimeout(() => busy = false, 1500); return; }
   busy = true;
   const now = new Date();
   const last = records.filter(r => r.no === no).sort((a,b) => b.ts - a.ts)[0];
@@ -222,169 +298,225 @@ function onScan(text){
     toast('순찰지점' + no + '<br><small>방금 기록됨 (' + last.time + ')</small>', true);
     setTimeout(() => busy = false, 2000); return;
   }
-  const rec = { ts: now.getTime(), date: ymd(now), time: hms(now), no, worker: document.getElementById('worker').value || '' };
+  const rec = { id: dev + '-' + now.getTime() + '-' + no, ts: now.getTime(), date: ymd(now), time: hms(now), no,
+                worker: document.getElementById('worker').value || '', sent: false };
   records.push(rec); save('patrol_records', records);
-  beep();
-  toast('✅ ' + ptLabel(no) + '<br>' + rec.time + ' 기록');
-  renderToday();
+  beep(); toast('✅ ' + esc(ptLabel(no)) + '<br>' + rec.time + ' 기록');
+  renderToday(); sync();
   setTimeout(() => busy = false, 2000);
 }
 
-// ===== 오늘 현황 =====
+/* ===== 화면 ===== */
 function renderWorkerSelect(){
   const sel = document.getElementById('worker');
-  sel.innerHTML = workers.length
-    ? workers.map(w => '<option' + (w === curWorker ? ' selected' : '') + '>' + esc(w) + '</option>').join('')
-    : '<option value="">근무자 미지정 (설정에서 추가)</option>';
+  sel.innerHTML = cfg.workers.length
+    ? '<option value="">👤 근무자 선택</option>' + cfg.workers.map(w => '<option' + (w === curWorker ? ' selected' : '') + '>' + esc(w) + '</option>').join('')
+    : '<option value="">근무자 명단 없음 (관리자 설정)</option>';
   sel.onchange = () => { curWorker = sel.value; save('patrol_worker', curWorker); };
 }
-function renderToday(){
-  const today = ymd(new Date());
-  const recs = records.filter(r => r.date === today);
+function gridHtml(recs){
   let done = 0, html = '';
   for (let i = 1; i <= N; i++){
     const mine = recs.filter(r => r.no === i).sort((a,b) => b.ts - a.ts);
     if (mine.length) done++;
-    html += '<div class="pt' + (mine.length ? ' done' : '') + '"><b>지점 ' + i + '</b><span>' + esc(points[i-1] || '-') + '</span><i>' +
+    html += '<div class="pt' + (mine.length ? ' done' : '') + '"><b>지점 ' + i + '</b><span>' + esc(ptName(i) || '-') + '</span><i>' +
       (mine.length ? mine[0].time.slice(0,5) + (mine.length > 1 ? ' <small>×' + mine.length + '</small>' : '') : '--:--') + '</i></div>';
   }
-  document.getElementById('todayGrid').innerHTML = html;
-  document.getElementById('prog').textContent = '오늘 ' + done + ' / ' + N + ' 지점 순찰 · 총 ' + recs.length + '회 기록';
+  return { html, done };
 }
-
-// ===== 기록 =====
-function shiftDate(n){
-  const el = document.getElementById('logDate');
-  const d = new Date(el.value + 'T00:00:00'); d.setDate(d.getDate() + n);
-  el.value = ymd(d); renderLog();
+function renderToday(){
+  const recs = records.filter(r => r.date === ymd(new Date()));
+  const g = gridHtml(recs);
+  document.getElementById('todayGrid').innerHTML = g.html;
+  document.getElementById('prog').textContent = '오늘 ' + g.done + ' / ' + N + ' 지점 · 총 ' + recs.length + '회';
 }
 function renderLog(){
   const date = document.getElementById('logDate').value;
   const recs = records.filter(r => r.date === date).sort((a,b) => a.ts - b.ts);
-  const visited = new Set(recs.map(r => r.no)).size;
-  const d = new Date(date + 'T00:00:00');
-  document.getElementById('logSummary').textContent = date + ' (' + DAYS[d.getDay()] + ') · ' + recs.length + '건 · ' + visited + '/' + N + ' 지점';
+  document.getElementById('logSummary').textContent = date + ' (' + dow(date) + ') · ' + recs.length + '건';
   document.getElementById('logBody').innerHTML = recs.length
-    ? recs.map(r => '<tr><td class="t">' + r.time + '</td><td>' + esc(ptLabel(r.no)) + '</td><td>' + esc(r.worker || '') +
-        '</td><td><button class="del" onclick="delRec(' + r.ts + ')">삭제</button></td></tr>').join('')
+    ? recs.map(r => '<tr><td class="t">' + r.time + '</td><td>' + esc(ptLabel(r.no)) + '</td><td>' + esc(r.worker) + '</td><td>' +
+        (SCRIPT_URL ? (r.sent ? '✅' : '⏳') : '-') + '</td></tr>').join('')
     : '<tr><td colspan="4" class="muted" style="text-align:center;padding:20px">기록이 없습니다</td></tr>';
 }
-function delRec(ts){
-  const r = records.find(x => x.ts === ts);
-  if (!r || !confirm(r.time + ' ' + ptLabel(r.no) + ' 기록을 삭제할까요?')) return;
-  records = records.filter(x => x.ts !== ts); save('patrol_records', records);
-  renderLog(); renderToday();
+
+/* ===== 관리자 ===== */
+function setAdminUI(){
+  const on = !!adminPin;
+  document.getElementById('navAdm').classList.toggle('hide', !on);
+  document.getElementById('adminLogin').classList.toggle('hide', on);
+  document.getElementById('adminOn').classList.toggle('hide', !on);
+  document.getElementById('adminSettings').classList.toggle('hide', !on && !!SCRIPT_URL);
+}
+function adminLogin(){
+  const pin = document.getElementById('pinInput').value.trim();
+  if (!pin) return;
+  if (!SCRIPT_URL){ adminPin = pin; save('patrol_admin_pin', pin); setAdminUI(); renderSettings(); return; }
+  const t = ymd(new Date());
+  apiGet({ action:'records', pin, from:t, to:t }).then(res => {
+    if (!res.ok){ toast('비밀번호가 틀렸습니다', true); return; }
+    adminPin = pin; save('patrol_admin_pin', pin); document.getElementById('pinInput').value = '';
+    setAdminUI(); renderSettings(); toast('관리자 모드 켜짐');
+  }).catch(() => toast('인터넷 연결을 확인하세요', true));
+}
+function adminLogout(){ adminPin = ''; save('patrol_admin_pin', ''); setAdminUI(); showTab('set'); }
+
+function fetchRecords(from, to){
+  if (!SCRIPT_URL) return Promise.resolve(records.filter(r => r.date >= from && r.date <= to));
+  return apiGet({ action:'records', pin: adminPin, from, to }).then(res => {
+    if (!res.ok){ throw new Error(res.error === 'pin' ? '관리자 비밀번호가 바뀌었습니다. 다시 로그인하세요' : '서버 오류'); }
+    return res.records;
+  });
+}
+function loadAdm(){
+  const date = document.getElementById('admDate').value;
+  document.getElementById('admSummary').textContent = '불러오는 중…';
+  fetchRecords(date, date).then(list => {
+    admRecs = list.sort((a,b) => a.ts - b.ts);
+    const g = gridHtml(admRecs);
+    document.getElementById('admGrid').innerHTML = g.html;
+    document.getElementById('admSummary').textContent = date + ' (' + dow(date) + ') · ' + g.done + ' / ' + N + ' 지점 · 총 ' + admRecs.length + '회';
+    document.getElementById('admBody').innerHTML = admRecs.length
+      ? admRecs.map(r => '<tr><td class="t">' + r.time + '</td><td>' + esc(ptLabel(r.no)) + '</td><td>' + esc(r.worker) + '</td></tr>').join('')
+      : '<tr><td colspan="3" class="muted" style="text-align:center;padding:20px">기록이 없습니다</td></tr>';
+  }).catch(e => { document.getElementById('admSummary').textContent = e.message || '인터넷 연결을 확인하세요'; });
 }
 
-// ===== 엑셀 =====
-function daySheets(date){
-  const recs = records.filter(r => r.date === date).sort((a,b) => a.ts - b.ts);
-  // 1) 시간순 기록
-  const rows = [['날짜','요일','시간','지점번호','지점명','근무자']];
-  const dw = DAYS[new Date(date + 'T00:00:00').getDay()];
-  recs.forEach(r => rows.push([r.date, dw, r.time, r.no, points[r.no-1] || '', r.worker || '']));
-  // 2) 지점별 (가로로 순찰 시간 나열)
-  let maxC = 0; const byPt = [];
-  for (let i = 1; i <= N; i++){ const t = recs.filter(r => r.no === i).map(r => r.time); byPt.push(t); maxC = Math.max(maxC, t.length); }
-  const head = ['지점번호','지점명','순찰횟수']; for (let c = 1; c <= maxC; c++) head.push(c + '회차');
-  const rows2 = [head];
-  byPt.forEach((t, i) => rows2.push([i+1, points[i] || '', t.length].concat(t)));
-  return { rows, rows2 };
+/* ===== 순찰일지 엑셀 (A4 세로, 16칸 격자) ===== */
+const FN = '맑은 고딕';
+const THIN = { style:'thin', color:{ argb:'FF000000' } };
+const BOX = { top:THIN, left:THIN, bottom:THIN, right:THIN };
+const GRAY = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFE7E9EE' } };
+function put(ws, r1, c1, r2, c2, val, o){
+  o = o || {};
+  const c = ws.getCell(r1, c1);
+  c.value = val;
+  c.font = { name:FN, size: o.size || (o.hd ? 11 : 11), bold: !!(o.hd || o.bold), color:{ argb: o.color || 'FF000000' } };
+  c.alignment = o.align || { horizontal:'center', vertical:'middle', wrapText:true };
+  if (o.border !== false) c.border = BOX;
+  if (o.hd) c.fill = GRAY;
+  if (r1 !== r2 || c1 !== c2) ws.mergeCells(r1, c1, r2, c2);
 }
-function sheetFrom(aoa, widths){ const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = widths.map(w => ({ wch: w })); return ws; }
-function exportDay(){
-  const date = document.getElementById('logDate').value;
-  const { rows, rows2 } = daySheets(date);
-  if (rows.length === 1){ toast('해당 날짜 기록이 없습니다', true); return; }
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, sheetFrom(rows, [12,5,10,9,22,10]), '순찰기록');
-  XLSX.utils.book_append_sheet(wb, sheetFrom(rows2, [9,22,9].concat(Array(20).fill(10))), '지점별');
-  XLSX.writeFile(wb, '순찰기록_' + date + '.xlsx');
+function journalSheet(wb, date, recs){
+  const ws = wb.addWorksheet(date.slice(5).replace('-', '월') + '일', {
+    views:[{ showGridLines:false }],
+    pageSetup:{ paperSize:9, orientation:'portrait', fitToPage:true, fitToWidth:1, fitToHeight:1, horizontalCentered:true,
+                margins:{ left:0.5, right:0.5, top:0.45, bottom:0.45, header:0.3, footer:0.3 } }
+  });
+  for (let c = 1; c <= 16; c++) ws.getColumn(c).width = 5.6;
+  const H = (r, h) => ws.getRow(r).height = h;
+  recs = recs.slice().sort((a,b) => a.ts - b.ts);
+  // 제목
+  put(ws, 1,1,1,16, '경비원 순찰일지', { size:30, bold:true, border:false, align:{ horizontal:'center', vertical:'bottom' } });
+  H(1,94); H(2,12); H(3,12);
+  // 결재란
+  put(ws, 4,8,5,8, '결\n재', { hd:true });
+  ['담당','대리','과장','소장'].forEach((t, i) => { const c = 9 + i*2; put(ws, 4,c,4,c+1, t, { hd:true }); put(ws, 5,c,5,c+1, ''); });
+  H(4,20); H(5,44); H(6,12);
+  // 정보
+  const visited = new Set(recs.map(r => r.no)).size;
+  put(ws, 7,1,7,2, '순찰일자', { hd:true }); put(ws, 7,3,7,6, date + ' (' + dow(date) + ')');
+  put(ws, 7,7,7,9, '순찰현황', { hd:true }); put(ws, 7,10,7,16, visited + ' / ' + N + ' 지점 (총 ' + recs.length + '회)');
+  H(7,24); H(8,10);
+  // 표 머리
+  [['순찰지점',1,2],['지점명',3,6],['순찰시간',7,9],['근무자',10,11],['확인',12,13],['비고',14,16]].forEach(([t,a,b]) => put(ws, 9,a,9,b, t, { hd:true }));
+  H(9,28);
+  // 본문: 순찰 순서대로 + 미순찰 지점
+  const rows = recs.map(r => ({ no:r.no, time:r.time, worker:r.worker || '' }));
+  for (let i = 1; i <= N; i++) if (!recs.some(r => r.no === i)) rows.push({ no:i, time:'미순찰', worker:'' });
+  const r0 = 10, last = r0 + rows.length - 1;
+  rows.forEach((x, k) => {
+    const r = r0 + k;
+    put(ws, r,1,r,2, x.no); put(ws, r,3,r,6, ptName(x.no));
+    put(ws, r,7,r,9, x.time, { color: x.time === '미순찰' ? 'FFD64545' : 'FF000000' });
+    H(r,30);
+  });
+  let s = 0;
+  for (let k = 1; k <= rows.length; k++){
+    if (k === rows.length || rows[k].worker !== rows[s].worker){ put(ws, r0+s,10,r0+k-1,11, rows[s].worker); s = k; }
+  }
+  put(ws, r0,12,last,13, '');
+  put(ws, r0,14,last,16, '', { align:{ horizontal:'left', vertical:'top', wrapText:true } });
+  // 특이사항
+  const t = last + 2;
+  put(ws, t,1,t,16, '특이사항', { hd:true }); H(t,22);
+  put(ws, t+1,1,t+5,16, '', { align:{ horizontal:'left', vertical:'top', wrapText:true } });
+  for (let i = 1; i <= 5; i++) H(t+i, 26);
+  const n = ws.getCell(t+7, 1); n.value = '※ 순찰시간은 순찰시계 앱 QR 촬영 기록으로 자동 작성됨';
+  n.font = { name:FN, size:9, color:{ argb:'FF6B7686' } };
+  return ws;
 }
-function exportRange(){
+function download(wb, name){
+  return wb.xlsx.writeBuffer().then(buf => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  });
+}
+function admExportDay(){
+  const date = document.getElementById('admDate').value;
+  fetchRecords(date, date).then(list => {
+    const wb = new ExcelJS.Workbook(); journalSheet(wb, date, list);
+    return download(wb, '경비원순찰일지_' + date + '.xlsx');
+  }).catch(e => toast(e.message || '인터넷 연결을 확인하세요', true));
+}
+function admExportRange(){
   const f = document.getElementById('fromDate').value, t = document.getElementById('toDate').value;
   if (!f || !t || f > t){ toast('기간을 올바르게 선택하세요', true); return; }
-  const dates = [...new Set(records.filter(r => r.date >= f && r.date <= t).map(r => r.date))].sort();
-  if (!dates.length){ toast('해당 기간 기록이 없습니다', true); return; }
-  const wb = XLSX.utils.book_new();
-  // 전체 시트
-  const all = [['날짜','요일','시간','지점번호','지점명','근무자']];
-  records.filter(r => r.date >= f && r.date <= t).sort((a,b) => a.ts - b.ts)
-    .forEach(r => all.push([r.date, DAYS[new Date(r.date + 'T00:00:00').getDay()], r.time, r.no, points[r.no-1] || '', r.worker || '']));
-  XLSX.utils.book_append_sheet(wb, sheetFrom(all, [12,5,10,9,22,10]), '전체');
-  // 날짜별 지점 시트
-  dates.forEach(d => XLSX.utils.book_append_sheet(wb, sheetFrom(daySheets(d).rows2, [9,22,9].concat(Array(20).fill(10))), d.slice(5)));
-  XLSX.writeFile(wb, '순찰기록_' + f + '_' + t + '.xlsx');
+  fetchRecords(f, t).then(list => {
+    const wb = new ExcelJS.Workbook();
+    for (let d = new Date(f + 'T00:00:00'); ymd(d) <= t; d.setDate(d.getDate() + 1)){
+      const ds = ymd(d); journalSheet(wb, ds, list.filter(r => r.date === ds));
+    }
+    return download(wb, '경비원순찰일지_' + f + '_' + t + '.xlsx');
+  }).catch(e => toast(e.message || '인터넷 연결을 확인하세요', true));
 }
 
-// ===== 설정 =====
+/* ===== 설정 ===== */
 function renderSettings(){
-  document.getElementById('workerList').innerHTML = workers.map((w, i) =>
+  document.getElementById('workerList').innerHTML = cfg.workers.map((w, i) =>
     '<div class="row" style="margin-bottom:4px"><span style="padding:6px 0">' + esc(w) + '</span><button class="del" style="flex:0" onclick="delWorker(' + i + ')">삭제</button></div>').join('') ||
     '<p class="muted">등록된 근무자가 없습니다</p>';
-  document.getElementById('pointNames').innerHTML = points.map((p, i) =>
+  document.getElementById('pointNames').innerHTML = cfg.points.map((p, i) =>
     '<div class="nameRow"><label>지점 ' + (i+1) + '</label><input id="pn' + i + '" value="' + esc(p) + '" placeholder="예: 301동 지하 전기실"></div>').join('');
+  document.getElementById('appInfo').textContent = (SCRIPT_URL ? '관리사무소 서버 연결됨' : '서버 미연결 (이 휴대폰에만 저장)') + ' · 기기번호 ' + dev;
 }
 function addWorker(){
   const el = document.getElementById('newWorker'), v = el.value.trim();
-  if (!v || workers.includes(v)) return;
-  workers.push(v); save('patrol_workers', workers); el.value = '';
-  if (!curWorker){ curWorker = v; save('patrol_worker', v); }
-  renderSettings(); renderWorkerSelect();
+  if (!v || cfg.workers.includes(v)) return;
+  cfg.workers.push(v);
+  pushConfig().then(ok => { if (ok){ el.value = ''; toast(v + ' 님 추가'); } renderSettings(); renderWorkerSelect(); });
 }
 function delWorker(i){
-  if (!confirm(workers[i] + ' 님을 삭제할까요? (기존 기록은 유지됩니다)')) return;
-  workers.splice(i, 1); save('patrol_workers', workers); renderSettings(); renderWorkerSelect();
+  if (!confirm(cfg.workers[i] + ' 님을 명단에서 삭제할까요? (기존 기록은 유지됩니다)')) return;
+  cfg.workers.splice(i, 1);
+  pushConfig().then(() => { renderSettings(); renderWorkerSelect(); });
 }
 function savePoints(){
-  points = points.map((_, i) => document.getElementById('pn' + i).value.trim());
-  save('patrol_points', points); renderToday(); toast('지점 이름 저장 완료');
+  cfg.points = cfg.points.map((_, i) => document.getElementById('pn' + i).value.trim());
+  pushConfig().then(ok => { if (ok) toast('지점 이름 저장 완료'); renderToday(); });
 }
 function printLabels(){
   const area = document.getElementById('printArea'); area.innerHTML = '';
   for (let i = 1; i <= N; i++){
     const div = document.createElement('div'); div.className = 'label';
-    div.innerHTML = '<h3>순찰지점 ' + i + '</h3><div class="qr" id="qr' + i + '"></div><p>' + esc(points[i-1] || '') + '</p><small>순찰시계 앱으로 촬영하세요</small>';
+    div.innerHTML = '<h3>순찰지점 ' + i + '</h3><div class="qr"></div><p>' + esc(ptName(i)) + '</p><small>순찰시계 앱으로 촬영하세요</small>';
     area.appendChild(div);
-    new QRCode(div.querySelector('.qr'), { text: QR_PREFIX + pad(i), width: 200, height: 200, correctLevel: QRCode.CorrectLevel.H });
+    new QRCode(div.querySelector('.qr'), { text: QR_PREFIX + pad(i), width:200, height:200, correctLevel: QRCode.CorrectLevel.H });
   }
   setTimeout(() => window.print(), 400);
 }
-function backup(){
-  const blob = new Blob([JSON.stringify({ records, points, workers }, null, 1)], { type: 'application/json' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = '순찰시계_백업_' + ymd(new Date()) + '.json'; a.click();
-}
-function restore(e){
-  const f = e.target.files[0]; if (!f) return;
-  const rd = new FileReader();
-  rd.onload = () => {
-    try{
-      const d = JSON.parse(rd.result);
-      if (!Array.isArray(d.records)) throw 0;
-      if (!confirm('백업의 기록 ' + d.records.length + '건을 현재 기록과 합칠까요?')) return;
-      const have = new Set(records.map(r => r.ts));
-      d.records.forEach(r => { if (!have.has(r.ts)) records.push(r); });
-      if (Array.isArray(d.points)) points = Array.from({length:N}, (_, i) => d.points[i] || '');
-      if (Array.isArray(d.workers)) workers = [...new Set(workers.concat(d.workers))];
-      save('patrol_records', records); save('patrol_points', points); save('patrol_workers', workers);
-      renderAll(); toast('복원 완료');
-    }catch(err){ toast('백업 파일이 올바르지 않습니다', true); }
-  };
-  rd.readAsText(f); e.target.value = '';
-}
 
-function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function renderAll(){ renderWorkerSelect(); renderToday(); renderSettings(); }
-
-// 초기화
+/* ===== 시작 ===== */
 (function(){
   const t = ymd(new Date());
-  document.getElementById('logDate').value = t;
-  document.getElementById('toDate').value = t;
+  ['logDate','admDate','toDate'].forEach(id => document.getElementById(id).value = t);
   const f = new Date(); f.setDate(1); document.getElementById('fromDate').value = ymd(f);
-  renderAll();
-  // 자정 넘어가면 오늘 현황 갱신
+  setAdminUI(); renderWorkerSelect(); renderToday(); renderSync(); renderSettings();
+  loadConfig(); sync();
+  window.addEventListener('online', sync);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden){ loadConfig(); sync(); } });
+  setInterval(sync, 60000);
   setInterval(renderToday, 60000);
 })();
 </script>
