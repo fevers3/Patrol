@@ -121,7 +121,7 @@ nav button.on{color:var(--pri)}
   </div>
   <div class="card">
     <h2>QR 표식 인쇄</h2>
-    <p class="muted" style="margin-top:0">A4에 지점 13개 라벨이 출력됩니다. 코팅해서 각 지점에 부착하세요. (PC에서 열어 인쇄 권장)</p>
+    <p class="muted" style="margin-top:0">A4에 지점 12개 라벨이 출력됩니다. 코팅해서 각 지점에 부착하세요. (PC에서 열어 인쇄 권장)</p>
     <button class="btn2" style="width:100%" onclick="printLabels()">🖨️ QR 라벨 인쇄</button>
   </div>
   <div class="card">
@@ -146,15 +146,16 @@ nav button.on{color:var(--pri)}
 </nav>
 
 <script>
-const N = 13;
-const QR_PREFIX = 'PATROL-';      // QR 내용: PATROL-01 ~ PATROL-13
+const N = 12;
+const QR_PREFIX = 'PATROL-';      // QR 내용: PATROL-01 ~ PATROL-12
 const DUP_SEC = 60;               // 같은 지점 60초 내 중복 촬영은 무시
 
 function load(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
 function save(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){ alert('저장 공간 오류: ' + e.message); } }
 
 let records = load('patrol_records', []);
-let points  = load('patrol_points', Array.from({length:N}, () => ''));
+let points  = load('patrol_points', []);
+points = Array.from({length:N}, (_, i) => points[i] || '');
 let workers = load('patrol_workers', []);
 let curWorker = load('patrol_worker', '');
 
@@ -364,7 +365,7 @@ function restore(e){
       if (!confirm('백업의 기록 ' + d.records.length + '건을 현재 기록과 합칠까요?')) return;
       const have = new Set(records.map(r => r.ts));
       d.records.forEach(r => { if (!have.has(r.ts)) records.push(r); });
-      if (Array.isArray(d.points)) points = d.points;
+      if (Array.isArray(d.points)) points = Array.from({length:N}, (_, i) => d.points[i] || '');
       if (Array.isArray(d.workers)) workers = [...new Set(workers.concat(d.workers))];
       save('patrol_records', records); save('patrol_points', points); save('patrol_workers', workers);
       renderAll(); toast('복원 완료');
