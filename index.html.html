@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>순찰시계</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f3f5f8;--card:#fff;--ink:#1b2430;--sub:#6b7686;--pri:#1f6feb;--ok:#1a9e55;--warn:#d9822b;--bad:#d64545;--line:#e2e6ec}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;font-family:-apple-system,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;background:var(--bg);color:var(--ink);padding-bottom:76px}
+header{background:var(--ink);color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
+header h1{margin:0;font-size:19px}
+#clock{font-size:15px;font-variant-numeric:tabular-nums;opacity:.9}
+main{padding:14px 16px;max-width:640px;margin:0 auto}
+.card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.card h2{font-size:16px;margin:0 0 10px}
+button{font:inherit;border:0;border-radius:10px;padding:12px 14px;font-weight:600;cursor:pointer}
+.btn{background:var(--pri);color:#fff;width:100%;font-size:17px;padding:16px}
+.btn.stop{background:var(--bad)}
+.btn2{background:#e8eef8;color:var(--pri)}
+.btn3{background:#eef0f3;color:var(--ink)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row>*{flex:1}
+input,select{font:inherit;padding:11px;border:1px solid var(--line);border-radius:10px;width:100%;background:#fff}
+#reader{width:100%;border-radius:12px;overflow:hidden;margin-top:10px;display:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
+.pt{border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center;background:#fafbfc}
+.pt b{display:block;font-size:13px}
+.pt span{display:block;font-size:12px;color:var(--sub);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pt i{display:block;font-style:normal;font-size:15px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+.pt.done{background:#e7f6ee;border-color:#9fd8b8}
+.pt.done i{color:var(--ok)}
+.prog{font-size:14px;color:var(--sub);margin-bottom:8px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left}
+th{color:var(--sub);font-weight:600;font-size:13px}
+td.t{font-variant-numeric:tabular-nums;font-weight:600}
+.del{background:none;color:var(--bad);padding:4px 8px;font-size:13px}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);display:flex;z-index:6}
+nav button{flex:1;background:none;border-radius:0;padding:12px 0 14px;color:var(--sub);font-size:14px}
+nav button.on{color:var(--pri)}
+.tab{display:none}.tab.on{display:block}
+#toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:var(--ok);color:#fff;padding:14px 20px;border-radius:12px;font-weight:700;font-size:17px;display:none;z-index:20;box-shadow:0 4px 14px rgba(0,0,0,.2);text-align:center}
+#toast.err{background:var(--bad)}
+.muted{color:var(--sub);font-size:13px;line-height:1.5}
+.nameRow{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.nameRow label{width:64px;font-size:14px;flex:none}
+/* 인쇄용 QR 라벨 */
+#printArea{display:none}
+@media print{
+  body{background:#fff;padding:0}
+  header,nav,main,#toast{display:none!important}
+  #printArea{display:grid!important;grid-template-columns:1fr 1fr;gap:10mm;padding:8mm}
+  .label{border:2px solid #000;border-radius:6mm;padding:6mm;text-align:center;page-break-inside:avoid}
+  .label .qr{display:flex;justify-content:center;margin:3mm 0}
+  .label h3{margin:0;font-size:22pt}
+  .label p{margin:1mm 0 0;font-size:13pt}
+  .label small{font-size:9pt;color:#555}
+}
+</style>
+</head>
+<body>
+<header><h1>🔦 순찰시계</h1><div id="clock"></div></header>
+
+<main>
+<!-- 순찰 탭 -->
+<section class="tab on" id="tab-scan">
+  <div class="card">
+    <div class="row" style="margin-bottom:10px">
+      <select id="worker"></select>
+    </div>
+    <button class="btn" id="scanBtn" onclick="toggleScan()">📷 순찰지점 촬영 시작</button>
+    <div id="reader"></div>
+    <p class="muted" style="margin:10px 0 0">지점에 붙은 QR 표식을 화면 안에 비추면 자동으로 시간이 기록됩니다. 연속으로 여러 지점을 찍을 수 있어요.</p>
+  </div>
+  <div class="card">
+    <h2>오늘 순찰 현황</h2>
+    <div class="prog" id="prog"></div>
+    <div class="grid" id="todayGrid"></div>
+    <p class="muted" style="margin:10px 0 0">칸에 표시된 시간은 그 지점의 오늘 마지막 순찰 시간입니다.</p>
+  </div>
+</section>
+
+<!-- 기록 탭 -->
+<section class="tab" id="tab-log">
+  <div class="card">
+    <h2>날짜별 기록</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button class="btn3" style="flex:0 0 48px" onclick="shiftDate(-1)">◀</button>
+      <input type="date" id="logDate" onchange="renderLog()">
+      <button class="btn3" style="flex:0 0 48px" onclick="shiftDate(1)">▶</button>
+    </div>
+    <div id="logSummary" class="prog"></div>
+    <table><thead><tr><th>시간</th><th>지점</th><th>근무자</th><th></th></tr></thead><tbody id="logBody"></tbody></table>
+  </div>
+  <div class="card">
+    <h2>엑셀 다운로드</h2>
+    <button class="btn2" style="width:100%;margin-bottom:10px" onclick="exportDay()">📥 선택한 날짜 엑셀 받기</button>
+    <div class="row" style="margin-bottom:8px">
+      <input type="date" id="fromDate"><span style="flex:0">~</span><input type="date" id="toDate">
+    </div>
+    <button class="btn2" style="width:100%" onclick="exportRange()">📥 기간 엑셀 받기 (날짜별 시트)</button>
+  </div>
+</section>
+
+<!-- 설정 탭 -->
+<section class="tab" id="tab-set">
+  <div class="card">
+    <h2>근무자</h2>
+    <div class="row"><input id="newWorker" placeholder="이름 입력 (예: 홍길동)"><button class="btn2" style="flex:0 0 80px" onclick="addWorker()">추가</button></div>
+    <div id="workerList" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
+    <h2>순찰지점 이름</h2>
+    <p class="muted" style="margin-top:0">위치를 적어두면 기록과 엑셀에 같이 표시됩니다. QR 표식을 다시 뽑지 않아도 이름만 바꿀 수 있어요.</p>
+    <div id="pointNames"></div>
+    <button class="btn2" style="width:100%;margin-top:6px" onclick="savePoints()">지점 이름 저장</button>
+  </div>
+  <div class="card">
+    <h2>QR 표식 인쇄</h2>
+    <p class="muted" style="margin-top:0">A4에 지점 13개 라벨이 출력됩니다. 코팅해서 각 지점에 부착하세요. (PC에서 열어 인쇄 권장)</p>
+    <button class="btn2" style="width:100%" onclick="printLabels()">🖨️ QR 라벨 인쇄</button>
+  </div>
+  <div class="card">
+    <h2>백업 / 복원</h2>
+    <p class="muted" style="margin-top:0">기록은 이 휴대폰에만 저장됩니다. 휴대폰을 바꾸거나 브라우저 데이터를 지우기 전에 백업하세요.</p>
+    <div class="row">
+      <button class="btn3" onclick="backup()">백업 파일 받기</button>
+      <button class="btn3" onclick="document.getElementById('restoreFile').click()">백업 복원</button>
+    </div>
+    <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="restore(event)">
+  </div>
+</section>
+</main>
+
+<div id="printArea"></div>
+<div id="toast"></div>
+
+<nav>
+  <button class="on" data-tab="scan" onclick="showTab('scan')">📷<br>순찰</button>
+  <button data-tab="log" onclick="showTab('log')">📋<br>기록</button>
+  <button data-tab="set" onclick="showTab('set')">⚙️<br>설정</button>
+</nav>
+
+<script>
+const N = 13;
+const QR_PREFIX = 'PATROL-';      // QR 내용: PATROL-01 ~ PATROL-13
+const DUP_SEC = 60;               // 같은 지점 60초 내 중복 촬영은 무시
+
+function load(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
+function save(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){ alert('저장 공간 오류: ' + e.message); } }
+
+let records = load('patrol_records', []);
+let points  = load('patrol_points', Array.from({length:N}, () => ''));
+let workers = load('patrol_workers', []);
+let curWorker = load('patrol_worker', '');
+
+const pad = n => String(n).padStart(2, '0');
+function ymd(d){ return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
+function hms(d){ return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+function ptLabel(no){ const nm = points[no-1]; return '순찰지점' + no + (nm ? ' (' + nm + ')' : ''); }
+const DAYS = ['일','월','화','수','목','금','토'];
+
+// 시계
+setInterval(() => { const d = new Date(); document.getElementById('clock').textContent = ymd(d).slice(5).replace('-','/') + ' ' + hms(d); }, 1000);
+
+// 탭
+function showTab(t){
+  document.querySelectorAll('.tab').forEach(s => s.classList.toggle('on', s.id === 'tab-' + t));
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  if (t !== 'scan' && scanning) toggleScan();
+  if (t === 'log') renderLog();
+  if (t === 'set') renderSettings();
+}
+
+function toast(msg, err){
+  const el = document.getElementById('toast');
+  el.innerHTML = msg; el.className = err ? 'err' : ''; el.style.display = 'block';
+  clearTimeout(el._t); el._t = setTimeout(() => el.style.display = 'none', 2200);
+}
+function beep(){
+  try{
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(); o.frequency.value = 1200; o.connect(ac.destination);
+    o.start(); o.stop(ac.currentTime + 0.15);
+  }catch(e){}
+  if (navigator.vibrate) navigator.vibrate(150);
+}
+
+// ===== 스캔 =====
+let qr = null, scanning = false, busy = false;
+function toggleScan(){
+  const btn = document.getElementById('scanBtn'), rd = document.getElementById('reader');
+  if (scanning){
+    qr.stop().catch(()=>{}).finally(() => { rd.style.display = 'none'; });
+    scanning = false; btn.textContent = '📷 순찰지점 촬영 시작'; btn.classList.remove('stop');
+    return;
+  }
+  if (!curWorker && workers.length){ curWorker = document.getElementById('worker').value; }
+  rd.style.display = 'block';
+  qr = qr || new Html5Qrcode('reader');
+  qr.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 230, height: 230 } }, onScan)
+    .then(() => { scanning = true; btn.textContent = '■ 촬영 종료'; btn.classList.add('stop'); })
+    .catch(err => { rd.style.display = 'none'; toast('카메라를 열 수 없습니다.<br><small>카메라 권한을 허용해 주세요</small>', true); console.log(err); });
+}
+
+function onScan(text){
+  if (busy) return;
+  text = (text || '').trim();
+  if (!text.startsWith(QR_PREFIX)){ busy = true; toast('순찰지점 QR이 아닙니다', true); setTimeout(() => busy = false, 1500); return; }
+  const no = parseInt(text.slice(QR_PREFIX.length), 10);
+  if (!(no >= 1 && no <= N)){ busy = true; toast('알 수 없는 지점입니다', true); setTimeout(() => busy = false, 1500); return; }
+
+  busy = true;
+  const now = new Date();
+  const last = records.filter(r => r.no === no).sort((a,b) => b.ts - a.ts)[0];
+  if (last && now.getTime() - last.ts < DUP_SEC * 1000){
+    toast('순찰지점' + no + '<br><small>방금 기록됨 (' + last.time + ')</small>', true);
+    setTimeout(() => busy = false, 2000); return;
+  }
+  const rec = { ts: now.getTime(), date: ymd(now), time: hms(now), no, worker: document.getElementById('worker').value || '' };
+  records.push(rec); save('patrol_records', records);
+  beep();
+  toast('✅ ' + ptLabel(no) + '<br>' + rec.time + ' 기록');
+  renderToday();
+  setTimeout(() => busy = false, 2000);
+}
+
+// ===== 오늘 현황 =====
+function renderWorkerSelect(){
+  const sel = document.getElementById('worker');
+  sel.innerHTML = workers.length
+    ? workers.map(w => '<option' + (w === curWorker ? ' selected' : '') + '>' + esc(w) + '</option>').join('')
+    : '<option value="">근무자 미지정 (설정에서 추가)</option>';
+  sel.onchange = () => { curWorker = sel.value; save('patrol_worker', curWorker); };
+}
+function renderToday(){
+  const today = ymd(new Date());
+  const recs = records.filter(r => r.date === today);
+  let done = 0, html = '';
+  for (let i = 1; i <= N; i++){
+    const mine = recs.filter(r => r.no === i).sort((a,b) => b.ts - a.ts);
+    if (mine.length) done++;
+    html += '<div class="pt' + (mine.length ? ' done' : '') + '"><b>지점 ' + i + '</b><span>' + esc(points[i-1] || '-') + '</span><i>' +
+      (mine.length ? mine[0].time.slice(0,5) + (mine.length > 1 ? ' <small>×' + mine.length + '</small>' : '') : '--:--') + '</i></div>';
+  }
+  document.getElementById('todayGrid').innerHTML = html;
+  document.getElementById('prog').textContent = '오늘 ' + done + ' / ' + N + ' 지점 순찰 · 총 ' + recs.length + '회 기록';
+}
+
+// ===== 기록 =====
+function shiftDate(n){
+  const el = document.getElementById('logDate');
+  const d = new Date(el.value + 'T00:00:00'); d.setDate(d.getDate() + n);
+  el.value = ymd(d); renderLog();
+}
+function renderLog(){
+  const date = document.getElementById('logDate').value;
+  const recs = records.filter(r => r.date === date).sort((a,b) => a.ts - b.ts);
+  const visited = new Set(recs.map(r => r.no)).size;
+  const d = new Date(date + 'T00:00:00');
+  document.getElementById('logSummary').textContent = date + ' (' + DAYS[d.getDay()] + ') · ' + recs.length + '건 · ' + visited + '/' + N + ' 지점';
+  document.getElementById('logBody').innerHTML = recs.length
+    ? recs.map(r => '<tr><td class="t">' + r.time + '</td><td>' + esc(ptLabel(r.no)) + '</td><td>' + esc(r.worker || '') +
+        '</td><td><button class="del" onclick="delRec(' + r.ts + ')">삭제</button></td></tr>').join('')
+    : '<tr><td colspan="4" class="muted" style="text-align:center;padding:20px">기록이 없습니다</td></tr>';
+}
+function delRec(ts){
+  const r = records.find(x => x.ts === ts);
+  if (!r || !confirm(r.time + ' ' + ptLabel(r.no) + ' 기록을 삭제할까요?')) return;
+  records = records.filter(x => x.ts !== ts); save('patrol_records', records);
+  renderLog(); renderToday();
+}
+
+// ===== 엑셀 =====
+function daySheets(date){
+  const recs = records.filter(r => r.date === date).sort((a,b) => a.ts - b.ts);
+  // 1) 시간순 기록
+  const rows = [['날짜','요일','시간','지점번호','지점명','근무자']];
+  const dw = DAYS[new Date(date + 'T00:00:00').getDay()];
+  recs.forEach(r => rows.push([r.date, dw, r.time, r.no, points[r.no-1] || '', r.worker || '']));
+  // 2) 지점별 (가로로 순찰 시간 나열)
+  let maxC = 0; const byPt = [];
+  for (let i = 1; i <= N; i++){ const t = recs.filter(r => r.no === i).map(r => r.time); byPt.push(t); maxC = Math.max(maxC, t.length); }
+  const head = ['지점번호','지점명','순찰횟수']; for (let c = 1; c <= maxC; c++) head.push(c + '회차');
+  const rows2 = [head];
+  byPt.forEach((t, i) => rows2.push([i+1, points[i] || '', t.length].concat(t)));
+  return { rows, rows2 };
+}
+function sheetFrom(aoa, widths){ const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = widths.map(w => ({ wch: w })); return ws; }
+function exportDay(){
+  const date = document.getElementById('logDate').value;
+  const { rows, rows2 } = daySheets(date);
+  if (rows.length === 1){ toast('해당 날짜 기록이 없습니다', true); return; }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, sheetFrom(rows, [12,5,10,9,22,10]), '순찰기록');
+  XLSX.utils.book_append_sheet(wb, sheetFrom(rows2, [9,22,9].concat(Array(20).fill(10))), '지점별');
+  XLSX.writeFile(wb, '순찰기록_' + date + '.xlsx');
+}
+function exportRange(){
+  const f = document.getElementById('fromDate').value, t = document.getElementById('toDate').value;
+  if (!f || !t || f > t){ toast('기간을 올바르게 선택하세요', true); return; }
+  const dates = [...new Set(records.filter(r => r.date >= f && r.date <= t).map(r => r.date))].sort();
+  if (!dates.length){ toast('해당 기간 기록이 없습니다', true); return; }
+  const wb = XLSX.utils.book_new();
+  // 전체 시트
+  const all = [['날짜','요일','시간','지점번호','지점명','근무자']];
+  records.filter(r => r.date >= f && r.date <= t).sort((a,b) => a.ts - b.ts)
+    .forEach(r => all.push([r.date, DAYS[new Date(r.date + 'T00:00:00').getDay()], r.time, r.no, points[r.no-1] || '', r.worker || '']));
+  XLSX.utils.book_append_sheet(wb, sheetFrom(all, [12,5,10,9,22,10]), '전체');
+  // 날짜별 지점 시트
+  dates.forEach(d => XLSX.utils.book_append_sheet(wb, sheetFrom(daySheets(d).rows2, [9,22,9].concat(Array(20).fill(10))), d.slice(5)));
+  XLSX.writeFile(wb, '순찰기록_' + f + '_' + t + '.xlsx');
+}
+
+// ===== 설정 =====
+function renderSettings(){
+  document.getElementById('workerList').innerHTML = workers.map((w, i) =>
+    '<div class="row" style="margin-bottom:4px"><span style="padding:6px 0">' + esc(w) + '</span><button class="del" style="flex:0" onclick="delWorker(' + i + ')">삭제</button></div>').join('') ||
+    '<p class="muted">등록된 근무자가 없습니다</p>';
+  document.getElementById('pointNames').innerHTML = points.map((p, i) =>
+    '<div class="nameRow"><label>지점 ' + (i+1) + '</label><input id="pn' + i + '" value="' + esc(p) + '" placeholder="예: 301동 지하 전기실"></div>').join('');
+}
+function addWorker(){
+  const el = document.getElementById('newWorker'), v = el.value.trim();
+  if (!v || workers.includes(v)) return;
+  workers.push(v); save('patrol_workers', workers); el.value = '';
+  if (!curWorker){ curWorker = v; save('patrol_worker', v); }
+  renderSettings(); renderWorkerSelect();
+}
+function delWorker(i){
+  if (!confirm(workers[i] + ' 님을 삭제할까요? (기존 기록은 유지됩니다)')) return;
+  workers.splice(i, 1); save('patrol_workers', workers); renderSettings(); renderWorkerSelect();
+}
+function savePoints(){
+  points = points.map((_, i) => document.getElementById('pn' + i).value.trim());
+  save('patrol_points', points); renderToday(); toast('지점 이름 저장 완료');
+}
+function printLabels(){
+  const area = document.getElementById('printArea'); area.innerHTML = '';
+  for (let i = 1; i <= N; i++){
+    const div = document.createElement('div'); div.className = 'label';
+    div.innerHTML = '<h3>순찰지점 ' + i + '</h3><div class="qr" id="qr' + i + '"></div><p>' + esc(points[i-1] || '') + '</p><small>순찰시계 앱으로 촬영하세요</small>';
+    area.appendChild(div);
+    new QRCode(div.querySelector('.qr'), { text: QR_PREFIX + pad(i), width: 200, height: 200, correctLevel: QRCode.CorrectLevel.H });
+  }
+  setTimeout(() => window.print(), 400);
+}
+function backup(){
+  const blob = new Blob([JSON.stringify({ records, points, workers }, null, 1)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = '순찰시계_백업_' + ymd(new Date()) + '.json'; a.click();
+}
+function restore(e){
+  const f = e.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try{
+      const d = JSON.parse(rd.result);
+      if (!Array.isArray(d.records)) throw 0;
+      if (!confirm('백업의 기록 ' + d.records.length + '건을 현재 기록과 합칠까요?')) return;
+      const have = new Set(records.map(r => r.ts));
+      d.records.forEach(r => { if (!have.has(r.ts)) records.push(r); });
+      if (Array.isArray(d.points)) points = d.points;
+      if (Array.isArray(d.workers)) workers = [...new Set(workers.concat(d.workers))];
+      save('patrol_records', records); save('patrol_points', points); save('patrol_workers', workers);
+      renderAll(); toast('복원 완료');
+    }catch(err){ toast('백업 파일이 올바르지 않습니다', true); }
+  };
+  rd.readAsText(f); e.target.value = '';
+}
+
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function renderAll(){ renderWorkerSelect(); renderToday(); renderSettings(); }
+
+// 초기화
+(function(){
+  const t = ymd(new Date());
+  document.getElementById('logDate').value = t;
+  document.getElementById('toDate').value = t;
+  const f = new Date(); f.setDate(1); document.getElementById('fromDate').value = ymd(f);
+  renderAll();
+  // 자정 넘어가면 오늘 현황 갱신
+  setInterval(renderToday, 60000);
+})();
+</script>
+</body>
+</html>
